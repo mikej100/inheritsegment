@@ -1,5 +1,6 @@
 library(usethis)
 library(tidyverse)
+library(uuid)
 
 #'
 #' Make one crossover between chromesome a and b at location lock, List version
@@ -7,9 +8,9 @@ library(tidyverse)
 #' chromosomes 1 and 2 are the parent chromosomes, chromosome 3 is the emerging
 #' chilld chromosome. loc is the location 
 #' @param ch_set list (
-#'  input chromosome 1,
-#'  input chromosome 2,
-#'  result chromosome
+#'  a=input chromosome a,
+#'  b=input chromosome b,
+#'  c=result chromosome
 #'  @param location to crossover) 
 
 #'
@@ -73,22 +74,99 @@ crossover <- function (ch, xloc) {
   )
 }
 
-recombine <- function (chrom_a, chrom_b){  
-  chrom_length <- 10
-  cx_rate <- 0.8
-  generate_length <- 300
+#' Recombin a pair of chromosomes
+#' 
+#' Embedded in the function are parameters for the recombination:
+#' exchange rate in often measured in centimorgans per megabyte of sequence,
+#' here we use morgans per Mbase as the cx_rate, which is cM/100
+#' 
+#'
+#' @param ch_pair chromosome a, chromosom b, chrom_number
+#'
+#' @return chromosome pair resulting from crossovers between chrom a and b.
+#' @export
+#'
+#' @examples
+recombine <- function (ch_pair, cx_rate = 0.01){  
+  chrom_length <- last(ch_pair[[1]]$loc)
+  generate_count <- 150
   
-  locs_1 <- rexp(generate_length, cx_rate) |>
+  
+  locs_1 <- rexp(generate_count, cx_rate) |>
     accumulate( \(len, loc) len + loc ) 
-  # TODO use the gamma approximation to sum of exponentials to specify
-  # a safe number of locations
-  if (last(locs_1) <= chrom_length)  {
-    stop("Error generating crossover location list")
-    # use stats::qgamma( 1 - 1e-15, shape = gen_len, rate = cx_rate)
-    # to check shortest length for a trillion tries
-  }
-}
   
+  # Will the generated locations be long enough?
+  # If this stop is thrown, then increase the generate_count.
+  # map_dbl( c(0.5, 0.1, .1e-3, 1e-12, 1e-15),\(p) stats::qgamma( p, shape = 150, rate = .01 ))
+  min_length <- stats::qgamma( 1e-15, shape = generate_count, rate = cx_rate)
+  if (min_length < chrom_length) {
+    stop("Warning: generating crossover location list may not be long enough")
+  }
+  if (last(locs_1) <= chrom_length)  {
+    stop("Error generating crossover location list, too short")
+  }
+  
+  locs <- head_while(locs_1, \(len) len <= chrom_length) |>
+    append(chrom_length)
+  
+  # randomise choice of which chromosome used as "a"
+  if (sample( c(TRUE, FALSE),1)) {
+    ch_0 <- list( a = ch_pair[[1]], b = ch_pair[[2]], c = make_ch( c(0), 1) ) 
+  } else {
+    ch_0 <- list( a = ch_pair[[2]], b = ch_pair[[1]], c = make_ch( c(0), 1) ) 
+  }
+   
+  reduce( locs, 
+                        \(ch, xl) crossover (ch, xl),
+                        .init=ch_0
+                        )$c
+}
+    
+
+#' Set up a chromosome with given set of segments with sequential ids
+#' 
+#' Can be used to set up multiple segments or whole chromosome with single id.
+#' Special case to create an empty chromosome locs <- 0
+#' @param locs List of segment end positions, including end of chromosome
+#' @param start_id Start number for the segment ids
+#'
+#' @return Tibble specifying the segments
+#'
+#' @examples
+make_ch <- function (locs, start_id) {
+  if (locs[1] == 0){
+    locsm <- 0
+  } else {
+    locsm <- c(0, locs)
+  }
+  chrom_a = tibble(
+    loc = locsm,
+    id = c(seq(start_id, length= length(locsm) - 1), NA)
+  )
+}
+
+#' Generate zygote chromosome pair from maternal and paternal chromosome pairs
+#' i.e. meiosis with crossover, selection and fusion.
+#'
+#' @param mat_ch maternal chromosome pair
+#' @param pat_ch paternal chromosome pair
+#' @param mat_xr maternal crossover rate
+#' @param pat_xr paternal crossover rate
+#'
+#' @returno 
+#' @export zygote chromosome pair
+#'
+#' @examples
+generate_zygote_chp <- function (mat_chp, pat_chp, mat_xr=0.01, pat_xr=0.01 ){
+  mat_gamete_ch <- recombine(mat_chp, mat_xr)
+  pat_gamete_ch<- recombine(pat_chp, pat_xr)
+  
+  zygote_chp <- list(
+    chrom_a = mat_gamete_ch, 
+    chrom_b = pat_gamete_ch,
+    chrom_n = mat_chp$chrom_n
+  )
+}   
   
 
 make_chrome <- function (type) {
@@ -108,5 +186,69 @@ genome_mbp <- 3.1e3
 chrom_count <- 24
 
 chrom_size <- genome_mbp / 24
-cross_rate_a <- 2 * genome_mbp / (genome_cm_female + genome_cm_male)
+# estimate average rate in Morgans (not cMorgans)
+cross_rate_a <- 2 * genome_mbp / (genome_cm_female + genome_cm_male) /100
+}
+
+create_gen0_individual <- function (id, gender, population_id=1) {
+  chr_number <- 3
+   
+  make_starting_ch_pair <- function(ch_num, id, ch_length = 130) {
+    list(
+      chrom_a =  make_ch(ch_length, id),
+      chrom_b =  make_ch(ch_length, id),
+      chrom_n = ch_num
+      )
+  }
+  ch_set <- map(1:chr_number, \(ch_n) make_starting_ch_pair(ch_n, id))  
+  
+  individual <- list(
+    id = id,
+    gender = gender,
+    pop_id = population_id,
+    lineage <- id,
+    ch_set = ch_set
+
+  )
+}
+
+make_child <- function (mother, father) {
+  
+    make_child_ch_set <- function(mother, father) {
+      map(seq_along(mother$ch_set),
+                  ~ generate_zygote_chp(mother$ch_set[[.x]], father$ch_set[[.x]])
+          )
+    }
+    child <- list (
+      id = UUIDgenerate(),
+      gender = sample(c("f", "m"), 1),
+      pop_id = mother$pop_id,
+      lineage = list(
+        m_id = mother$id,
+        p_id = father$id,
+        m_lin =mother$lineage,
+        p_lin = father$lineage
+      ),
+      ch_set = make_child_ch_set(mother, father)
+    )
+}
+
+make_children <- function(mother, father, child_n = NA, child_mean=2) {
+  # Randomise the number of children, if not specified.
+  if (is.na(child_n)){
+    child_n <- rpois(1, child_mean)
+  }
+  
+  children <- map(
+    seq(1, length=child_n),
+    ~ make_child(mothers[[1]], fathers[[1]])
+  )               
+}
+
+make_generation <- function (generation) {
+  sample_n <- length(generation) * 0.3
+  mothers <- generation |> 
+    keep(~ .x$gender =="f") |>
+    sample(sample_n)
+    
 }
