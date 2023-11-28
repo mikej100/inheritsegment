@@ -52,8 +52,8 @@ test_that("Make crossovers for given set of locations", {
 #   ch <- list(a=chrom_a, b=chrom_b, c=chrom_c)
 # })
 test_that("Make recombination for given rate", {
-  ch_length = 130
-  n = 100
+  ch_length <- 130
+  n <- 100
   cx_rate <- 0.01
   chrom_a = make_ch( ch_length, 1000)
   chrom_b = make_ch( ch_length, 2000)
@@ -63,7 +63,7 @@ test_that("Make recombination for given rate", {
     map_int( \(p) p-2)
   
   mean_cx_count <- mean(cx_count)
-  poiss_exp <- cx_rate * chrom_length
+  poiss_exp <- cx_rate * ch_length
   sem <-  poiss_exp / n^0.5
   # Expect mean to be within four sigmas
   expect_equal(mean(cx_count), poiss_exp, tolerance = 4 * sem  )
@@ -146,7 +146,7 @@ test_that("Produce child", {
 })
 
 test_that("Run generations",{
-  pop_n <- 100
+  pop_n <- 50
   females <- map(seq(1, length=pop_n/2),
                  \(id) create_gen0_individual(id, gender = "f")
   )
@@ -154,8 +154,14 @@ test_that("Run generations",{
                  \(id) create_gen0_individual(id, gender = "m")
   )
   gen_0 <- c(females, males)
-  gen_1 <- make_generation(gen_0)
-    
-  )
+  
+  gen_n <- accumulate(1:7, \(gen, i) make_generation(gen), .init=gen_0 )  
+  
+  gen_n[[1]]$id
+  
+  sample(gen_n,3) |>
+    map(~.x$ch_set[[1]]$chrom_a)
+  sample(gen_n, 1) |>
+    map(~ .x$lineage)
 })
-kkkk  
+lin <- gen_n[[12]]$lineage
