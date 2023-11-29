@@ -57,7 +57,12 @@ test_that("Make recombination for given rate", {
   cx_rate <- 0.01
   chrom_a = make_ch( ch_length, 1000)
   chrom_b = make_ch( ch_length, 2000)
-  ch_pair <- list(chrom_a, chrom_b)
+  ch_pair <- list(
+    chs = list(
+      chrom_a,
+      chrom_b),
+    ch_n = 1
+  )
   recombined <- map(  1:n, \(i) recombine(ch_pair, cx_rate = cx_rate ))
   cx_count <- map_int(recombined, \(r) nrow(r)) |>
     map_int( \(p) p-2)
@@ -73,25 +78,31 @@ test_that("Make recombination for given rate", {
 
 test_that("Produces zygote chromosomes", {
   ch_length = 130
-  mother  <- map(11:12, \(id) make_ch( ch_length, id ))
-  father  <- map(1:2, \(id) make_ch( ch_length, id ))
-
+  m_chp <- list(
+    chs = map(11:12, \(id) make_ch( ch_length, id )),
+    ch_n = 1
+  )
+  p_chp <- list(
+    chs = map(1:2, \(id) make_ch( ch_length, id )),
+    ch_n = 1
+  )
   xr_mat <- 0.08
   xr_pat <- 0.05
   
   n=3
   zygote_set <- map (1:n,
-    \(i) generate_zygote_chp(mother, father, xr_mat, xr_pat)
+    \(i) generate_zygote_chp(m_chp, p_chp, xr_mat, xr_pat)
   )
   pat_ids <-zygote_set |> 
-    map(\(z) z[[2]]$id) |>
-    reduce( \(cum, loc) append(cum, loc)) |>
+    map(\(z) z$chs[[2]]$id) |>
+    reduce( \(cum, id) append(cum, id)) |>
     keep( \(id) !is.na(id))
   
   expect_equal(mean(pat_ids), 1.5, tolerance = 0.1 )  
   expect_equal(length(pat_ids), 130 * xr_pat * n, tolerance = 0.5)
 })
 
+zygote_set[[2]]$chs[[1]]$id
 test_that("make population of generation 0 individuals", {
   females <- map(seq(1, length=12),
                  \(id) create_gen0_individual(id, gender = "f")
@@ -146,7 +157,10 @@ test_that("Produce child", {
 })
 
 test_that("Run generations",{
-  pop_n <- 50
+  pop_n <- 500
+  gen_count <- 7
+  growth_rate <- 1.1
+  
   females <- map(seq(1, length=pop_n/2),
                  \(id) create_gen0_individual(id, gender = "f")
   )
@@ -154,14 +168,77 @@ test_that("Run generations",{
                  \(id) create_gen0_individual(id, gender = "m")
   )
   gen_0 <- c(females, males)
+  gens <- accumulate(1:gen_count,
+                     \(gen, i) make_generation(gen, growth=growth_rate),
+                     .init=gen_0 )  
   
-  gen_n <- accumulate(1:7, \(gen, i) make_generation(gen), .init=gen_0 )  
+  gen_size <- gens |>
+    map_int(~length(.x))
+  # Expect observed growth rate of about to match growth_rate parameter
+  # Requires the generation size not to be randomised
+  expect_equal(gen_size[3], 605)
   
-  gen_n[[1]]$id
+  growth_rate_obs <-
+    map2(gen_size, lag(gen_size),  ~ .x/.y ) |>
+    tail(-2) |>
+    unlist()
+  expect_true (
+    every( abs( growth_rate_obs - growth_rate ), ~ . <0.05)
+  )
+ 
+  gen_3 <- gens[[3]]
+  gen_3_s <- sample (gens[[3]], 3)
+  gen_3_ch_s <- get_chroms(gen_3_s )
+  expect_equal(length(gen_3_ch_s), 6)
   
-  sample(gen_n,3) |>
-    map(~.x$ch_set[[1]]$chrom_a)
-  sample(gen_n, 1) |>
-    map(~ .x$lineage)
-})
-lin <- gen_n[[12]]$lineage
+  # get list of all chromosomes in list of individuals
+  get_chroms  <- function (gen) {
+      chroms <- gen |>
+      map( ~ .x$ch_set[[1]]$chs ) |>
+      reduce( ~ c(.x, .y) )# |> 
+  }
+  
+  # get all ids in all chromosom in list of chromosomes
+  get_chroms_all_ids <- function (chroms) {
+    chrom_ids <- chroms |>
+    map(~ .x$id) |>
+    reduce(~ c(.x, .y)) |>
+    keep ( ~ !is.na(.x))
+  }
+  
+  # get all chromosomes into one list, by generation
+  gen_chroms <- gens |>
+    map(~ get_chroms(.x))
+  
+  # get mean number of segments in a chromosome for each generation
+  gens_id_n_mean <-  gen_chroms |>
+    map_dbl( ~ .x|>
+      map(~ .x$id) |>
+      map_int( ~ length(.x) -1) |>
+      mean()
+    )
+  gens_id_n_sd <-  gen_chroms |>
+    map_dbl( ~ .x|>
+      map(~ .x$id) |>
+      map_int( ~ length(.x) -1) |>
+      sd()
+    )
+  gens_id_n_growth   <-
+      map2_dbl(gens_id_n_mean, lag(gens_id_n_mean), ~ .x/.y) 
+  
+  # get number of unique ids
+  gens_unique_id_n <-  gen_chroms |>
+    map( ~ .x|>
+      map(~ .x$id)|>
+      map( ~ unique(.x)) |>
+      map_int( ~ length(.x) - 1 )
+    )
+  gens_unique_id_n_m <- map_dbl(gens_unique_id_n, ~ mean(.x)) 
+  
+  gens_unique_id_n_growth <-
+    map2_dbl( gens_unique_id_n_m, lag(gens_unique_id_n_m), ~ .x/.y )
+  get_ch_id_summary(gen_chroms[[1]])
+  
+  
+  }
+  

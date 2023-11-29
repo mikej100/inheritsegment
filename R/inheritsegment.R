@@ -270,19 +270,29 @@ make_children <- function(mother, father, child_n = NA, child_mean=2) {
 }
 
 make_generation <- function (parent_gen, growth=1.1, limit_m=NA) {
-  breed_rate <- 0.5
-  sample_n <- length(parent_gen)/2*breed_rate
-  # sample_n <- rpois(1, length(parent_gen)/2*breed_rate)
   child_m <- 6  #mean number of children in family
+  
+  # estimate quantity breeding pairs needed based on target growth, with margin
+  par_n <- length(parent_gen)
+  if (is.na(limit_m)) {
+    sample_n_target <- par_n * growth / child_m * 1.1
+  } else {
+    # TODO calculate samples size when limit is defined
+    sample_n_target <- par_n
+  }
+  # Use code like this if want to randomise breeding pairs
+  # sample_n <- rpois(1, length(parent_gen)/2*breed_rate)
   
   females <- parent_gen |> 
     keep(~ .x$gender =="f")
   males <- parent_gen |>
     keep(~ .x$gender =="m")
   
-  breed_n <- min(length(females), length(males))
-  mothers <- sample(females, breed_n)    
-  fathers <- sample(males, breed_n)    
+  sample_n_available <- min(length(females), length(males))
+  sample_n <- min(sample_n_available, sample_n_target)
+  
+  mothers <- sample(females, sample_n )    
+  fathers <- sample(males, sample_n)    
   generated <- map2(mothers, fathers,
                       \(m,f) make_children(m, f, child_n = child_m)) |>
         reduce( ~ c(.x, .y))
@@ -291,5 +301,7 @@ make_generation <- function (parent_gen, growth=1.1, limit_m=NA) {
     limit <- length(parent_gen) * growth 
   }
   
-  gen_next <- sample(generated, rpois(1, limit)) 
+  gen_next <- sample(generated, limit) 
+  # use this to randomise generation size
+  # gen_next <- sample(generated, rpois(1, limit)) 
 }
