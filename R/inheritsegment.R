@@ -61,8 +61,10 @@ library(uuid)
 #'
 #' Make one crossover between chromesome a and b at location lock. Dataframe ver
 #'
-#' chromosomes 1 and 2 are the parent chromosomes, chromosome 3 is the emerging
-#' chilld chromosome. loc is the location 
+#' Chromosome triplet
+#'    cht$a is the chromsome being crossed into
+#'    cht$b is the other chromosome, which is moved to position a before return
+#'    cht$c is the new chromosome being built up
 #' @param cht chromome triplet (a=parent 1, b=parent 1, c=child)
 #'  @param location to crossover) 
 
@@ -72,6 +74,63 @@ library(uuid)
 #'
 #' @examples
 crossover <- function (cht, xloc) {
+  # Logic of code
+  #  loc
+  #   all of c
+  #   any of a > last of c && < xloc
+  #   xloc
+  #  
+  #  id
+  #   all of c less last c , which is NA
+  #   a from last before c-last 
+  #   to last. loc before xloc
+  #   NA 
+  
+  # index of last location in $c
+  i_c1 <- length(cht$c)    
+  # index of last location in $a before end of $c
+  i_a1 <- detect_index(cht$a$loc, ~ . > last(cht$c$loc))
+  # index of last location in $a less than xloc
+  i_a2 <- detect_index(cht$a$loc, ~ . >= xloc) -1 
+  
+  # all loc in $c
+  n_loc1 <- cht$c$loc
+  # any loc in a > last loc in c and < xloc
+  n_loc2 <- head(cht$a$loc, i_a2  ) |>
+    tail(i_a2 - i_a1 +1)
+  n_loc3 <- xloc
+  
+  # all ids from $c except terminating NA
+  n_id1 <- head(cht$c$id, -1)
+  # ids in $a from before end of c and up to xloc
+  n_id2 <- head(cht$a$id, i_a2) |>
+    tail(i_a2 - i_a1 +2  )
+  n_id3 <- NA
+  
+  n_loc <-c(n_loc1, n_loc2, n_loc3) 
+  n_id <-c(n_id1, n_id2, n_id3)   
+  new <- list(
+    loc = n_loc,
+    id = n_id 
+  )
+  
+  
+ ch_return <- list (
+    a = cht$b,
+    b = cht$a,
+    c = new
+  )
+# cht<-ch_0
+# cht<-ch_return
+# xloc<-65
+# xloc<-105
+# xloc<-130
+# 
+# new$loc
+# new$id
+}
+
+crossover_T <- function (cht, xloc) {
   start_loc <- last(cht$c$loc)  
   leader <- head(cht$c, -1)
   
@@ -154,13 +213,24 @@ recombine <- function (ch_pair, cx_rate = 0.01){
 #' @return Tibble specifying the segments
 #'
 #' @examples
-make_ch <- function (locs, start_id) {
+make_ch_T <- function (locs, start_id) {
   if (locs[1] == 0){
     locsm <- 0
   } else {
     locsm <- c(0, locs)
   }
   ch = tibble(
+    loc = locsm,
+    id = c(seq(start_id, length= length(locsm) - 1), NA)
+  )
+}
+make_ch <- function (locs, start_id) {
+  if (locs[1] == 0){
+    locsm <- 0
+  } else {
+    locsm <- c(0, locs)
+  }
+  ch = list(
     loc = locsm,
     id = c(seq(start_id, length= length(locsm) - 1), NA)
   )

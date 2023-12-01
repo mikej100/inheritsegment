@@ -1,4 +1,5 @@
 library(testthat)
+library(dplyr)
 library(purrr)
 
 test_that("multiplication works", {
@@ -12,11 +13,36 @@ test_that("Make crossovers for given set of locations", {
     chrom_a <- make_ch( c(20, 40, 60, 80,100, 120, 130), 1)
     chrom_b <- make_ch( c(10, 30, 50, 70, 90, 110, 130), 1001)
     chrom_c <- make_ch( 0, 1)
+    cht <- list(a=chrom_a, b=chrom_b, c=chrom_c)
+  }
+
+  # expected when xover at 65 and 105
+  expected_1 <- list(
+    loc = c(0, 20, 40, 60,   65,   70,   90, 105, 120, 130),
+    id =  c(1,  2,  3,  4, 1004, 1005, 1006,   6,   7, NA)
+  )
+  
+  ch_0 <- make_ch_0()
+  recombined <- reduce( c(65, 105, 130), 
+                        \(ch, xl) crossover (cht, xl),
+                        .init=ch_0
+                        )$c
+  expect_equal(recombined, expected_1)
+  # res <- accumulate(c(65, 95, 130), \(ch, xl) crossover(ch, xl), .init=ch)
+})
+
+test_that("TIBBLE Make crossovers for given set of locations", {
+
+ 
+  make_ch_0 <-function() {
+    chrom_a <- make_ch( c(20, 40, 60, 80,100, 120, 130), 1)
+    chrom_b <- make_ch( c(10, 30, 50, 70, 90, 110, 130), 1001)
+    chrom_c <- make_ch( 0, 1)
     ch <- list(a=chrom_a, b=chrom_b, c=chrom_c)
   }
 
   # expected when xover at 65 and 105
-  expected_1 <- tibble(
+  expected_1 <- list(
     loc = c(0, 20, 40, 60,   65,   70,   90, 105, 120, 130),
     id =  c(1,  2,  3,  4, 1004, 1005, 1006,   6,   7, NA)
   )
@@ -237,8 +263,6 @@ test_that("Run generations",{
   
   gens_unique_id_n_growth <-
     map2_dbl( gens_unique_id_n_m, lag(gens_unique_id_n_m), ~ .x/.y )
-  get_ch_id_summary(gen_chroms[[1]])
   
   
-  }
-  
+  })
