@@ -146,7 +146,7 @@ test_that("make population of generation 0 individuals", {
   expect_equal(
     population |>
       keep (\(i) i$gender == "m") |>
-      map_int(\(i) i$id) |>
+      map_int(\(i) i$iid) |>
       mean(),
     1005.5
   )
@@ -197,6 +197,8 @@ test_that("Run generations",{
   gens <- accumulate(1:gen_count,
                      \(gen, i) make_generation(gen, growth=growth_rate),
                      .init=gen_0 )  
+  
+  sample(gens[[3]], 1) # |> map(~ .$lineage) 
   
   gen_size <- gens |>
     map_int(~length(.x))
@@ -264,5 +266,5 @@ test_that("Run generations",{
   gens_unique_id_n_growth <-
     map2_dbl( gens_unique_id_n_m, lag(gens_unique_id_n_m), ~ .x/.y )
   
-  
+  sample(gens[[7]],1) |> map(~ .$lineage) 
   })

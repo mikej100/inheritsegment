@@ -7,58 +7,25 @@ library(uuid)
 #' in ABNF format
 #' 
 #'  generation = 1*individual
-#'  individual = id gender pop_id ch_set
-#'  id = INT / UUID
-#'  gender = "f" / "m"
-#'  pop_id = INT  ; population id
-#'  ch_set= 1*ch_pair ; chromosome set of the individual
-#'  ch_pair = chs ch_n
-#'  ch_n = INT   ; chromosome number
-#'  chs = 2ch
-#'  ch = loc id ; set of chromosome segments as dataframe of ids and locations
+#'  individual = iid gender pop-id ch-set
+#'  iid = INT | UUID ; individual identifier
+#'  gender = "f" | "m"
+#'  pop-id = INT  ; population id
+#'  ch-set= 1*ch_pair ; chromosome set of the individual
+#'  ch-pair = chs ch_n
+#'  ch-n = INT   ; chromosome number
+#'  chs = 2ch  ; chromosomes
+#'  ch = loc id ; set of chromosome segments as lists of ids and locations
 #'  ; length of id matches length of loc
-#'  id = 1*INT "NA" ; origin_id of the segment, NA marks end of chromosome
+#'  segment identifier, origin_id of the segment, NA marks end of chromosome
+#'  id = 1*INT "NA"
+#'  location on the chromosome of start of segment in Mbp last value end of chm
 #'  loc = 0 1*REAL ; location on the chromosome of start of segment in Mbp
-
-#  Functions =====
-#   #'
-#   #' Make one crossover between chromosome a and b at location lock, List version
-#   #'
-#   #' chromosomes 1 and 2 are the parent chromosomes, chromosome 3 is the emerging
-#   #' chilld chromosome. loc is the location 
-#   #' @param ch_set list (
-#   #'  a=input chromosome a,
-#   #'  b=input chromosome b,
-#   #'  c=result chromosome
-#   #'  @param location to crossover) 
-#   
-#   #'
-#   #' @return same strucure as param, with chrom 3 extended and chrom 1 and 2 
-#   #' swapped 
-#   #'
-#   #' @examples
-#   crossover_l <- function (ch, xloc) {
-#   
-#    segment_head <- ch$a |>
-#       tail_while( \(cha) cha$loc >= last(ch$c)$loc) 
-#     segment <- segment_head |>
-#       head_while( \(sh) sh$loc <= xloc )
-#     
-#     last <- list(list(loc=xloc, id = NA))
-#     c_return1 <- append(ch$c, segment)
-#     c_return2 <- append(c_return1, last)
-#     
-#     c_return3 <- append(ch$c, c(segment, last))
-#     #last_id <- detect(ch$a, \(cha) cha$loc < xloc, .dir="backward")
-#     ch_return <- list (
-#       a = ch$b,
-#       b = ch$a,
-#       c = append(ch$c, c(segment, last))
-#     )
-#     return (ch_return) 
-#   }
-
-#'
+#'  
+#'  
+#'  lineage = 1*(iid-list)  ; first element is the first generation
+#'  id-list = 1*(INT | UUID)  
+#'  
 #' Make one crossover between chromesome a and b at location lock. Dataframe ver
 #'
 #' Chromosome triplet
@@ -98,58 +65,24 @@ crossover <- function (cht, xloc) {
   # any loc in a > last loc in c and < xloc
   n_loc2 <- head(cht$a$loc, i_a2  ) |>
     tail(i_a2 - i_a1 +1)
-  n_loc3 <- xloc
   
   # all ids from $c except terminating NA
   n_id1 <- head(cht$c$id, -1)
   # ids in $a from before end of c and up to xloc
   n_id2 <- head(cht$a$id, i_a2) |>
     tail(i_a2 - i_a1 +2  )
-  n_id3 <- NA
   
-  n_loc <-c(n_loc1, n_loc2, n_loc3) 
-  n_id <-c(n_id1, n_id2, n_id3)   
   new <- list(
-    loc = n_loc,
-    id = n_id 
+    loc = c(n_loc1, n_loc2, xloc), 
+    id =  c(n_id1, n_id2, NA)
   )
-  
   
  ch_return <- list (
     a = cht$b,
     b = cht$a,
     c = new
   )
-# cht<-ch_0
-# cht<-ch_return
-# xloc<-65
-# xloc<-105
-# xloc<-130
-# 
-# new$loc
-# new$id
 }
-
-crossover_T <- function (cht, xloc) {
-  start_loc <- last(cht$c$loc)  
-  leader <- head(cht$c, -1)
-  
-  start_ind <- detect_index(cht$a$loc, \(l) l > start_loc)  -1 
-  start_id <- cht$a$id[[start_ind]]
-  first <- tibble(loc=start_loc, id=start_id)
-  
-  segment <- cht$a |>
-    filter(loc > start_loc & loc < xloc) 
-  
-  last <- tibble(loc=xloc, id=NA)
-  
-  ch_return <- list (
-    a = cht$b,
-    b = cht$a,
-    c = rbind(leader, first, segment, last)
-  )
-}
-
 #' Recombine a pair of chromosomes
 #' 
 #' Embedded in the function are parameters for the recombination:
@@ -186,7 +119,7 @@ recombine <- function (ch_pair, cx_rate = 0.01){
     append(chrom_length)
   
   # randomise choice of which chromosome used as "a"
-  if (sample( c(TRUE, FALSE),1)) {
+  if (sample( c(TRUE, FALSE), 1)) {
     ch_0 <- list( a = ch_pair$chs[[1]],
                   b = ch_pair$chs[[2]], 
                   c = make_ch( c(0), 1) ) 
@@ -213,17 +146,6 @@ recombine <- function (ch_pair, cx_rate = 0.01){
 #' @return Tibble specifying the segments
 #'
 #' @examples
-make_ch_T <- function (locs, start_id) {
-  if (locs[1] == 0){
-    locsm <- 0
-  } else {
-    locsm <- c(0, locs)
-  }
-  ch = tibble(
-    loc = locsm,
-    id = c(seq(start_id, length= length(locsm) - 1), NA)
-  )
-}
 make_ch <- function (locs, start_id) {
   if (locs[1] == 0){
     locsm <- 0
@@ -260,7 +182,6 @@ generate_zygote_chp <- function (mat_chp, pat_chp, mat_xr=0.01, pat_xr=0.01 ){
     ch_n = mat_chp$ch_n
   )
 }   
-  
 
 #   make_chrome <- function (type) {
 #   chrom_a |>
@@ -297,10 +218,10 @@ create_gen0_individual <- function (id, gender, ch_count=1, population_id=1) {
   ch_set <- map(1:ch_count, \(ch_n) make_starting_ch_pair(ch_n, id))  
   
   individual <- list(
-    id = id,
+    iid = id,
     gender = gender,
     pop_id = population_id,
-    lineage <- id,
+    lineage = list(id),
     ch_set = ch_set
 
   )
@@ -313,16 +234,16 @@ make_child <- function (mother, father) {
                   ~ generate_zygote_chp(mother$ch_set[[.x]], father$ch_set[[.x]])
           )
     }
+    iid <- UUIDgenerate()
+    
+    lineage <- map2( mother$lineage, father$lineage, ~  c(.x, .y) ) |>
+      c(iid)
+
     child <- list (
-      id = UUIDgenerate(),
       gender = sample(c("f", "m"), 1),
+      iid = iid,
       pop_id = mother$pop_id,
-      lineage = list(
-        m_id = mother$id,
-        p_id = father$id,
-        m_lin =mother$lineage,
-        p_lin = father$lineage
-      ),
+      lineage = lineage,
       ch_set = make_child_ch_set(mother, father)
     )
 }
