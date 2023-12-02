@@ -9,7 +9,7 @@ test_that("multiplication works", {
 test_that("Make crossovers for given set of locations", {
 
  
-  make_ch_0 <-function() {
+  make_cht_0 <- function() {
     chrom_a <- make_ch( c(20, 40, 60, 80,100, 120, 130), 1)
     chrom_b <- make_ch( c(10, 30, 50, 70, 90, 110, 130), 1001)
     chrom_c <- make_ch( 0, 1)
@@ -22,61 +22,15 @@ test_that("Make crossovers for given set of locations", {
     id =  c(1,  2,  3,  4, 1004, 1005, 1006,   6,   7, NA)
   )
   
-  ch_0 <- make_ch_0()
+  cht_0 <- make_cht_0()
   recombined <- reduce( c(65, 105, 130), 
-                        \(ch, xl) crossover (cht, xl),
-                        .init=ch_0
+                        \(cht, xl) crossover (cht, xl),
+                        .init=cht_0
                         )$c
   expect_equal(recombined, expected_1)
   # res <- accumulate(c(65, 95, 130), \(ch, xl) crossover(ch, xl), .init=ch)
 })
 
-test_that("TIBBLE Make crossovers for given set of locations", {
-
- 
-  make_ch_0 <-function() {
-    chrom_a <- make_ch( c(20, 40, 60, 80,100, 120, 130), 1)
-    chrom_b <- make_ch( c(10, 30, 50, 70, 90, 110, 130), 1001)
-    chrom_c <- make_ch( 0, 1)
-    ch <- list(a=chrom_a, b=chrom_b, c=chrom_c)
-  }
-
-  # expected when xover at 65 and 105
-  expected_1 <- list(
-    loc = c(0, 20, 40, 60,   65,   70,   90, 105, 120, 130),
-    id =  c(1,  2,  3,  4, 1004, 1005, 1006,   6,   7, NA)
-  )
-  
-  ch_0 <- make_ch_0()
-  recombined <- reduce( c(65, 105, 130), 
-                        \(ch, xl) crossover (ch, xl),
-                        .init=ch_0
-                        )$c
-  expect_equal(recombined, expected_1)
-  # res <- accumulate(c(65, 95, 130), \(ch, xl) crossover(ch, xl), .init=ch)
-})
-
-
-
-# For testing list versions of recombination, not used ----
-# make_ch_l <-function() {
-#   chrom_a = list(
-#     loc = c(0, 20, 40, 60, 80, 130),
-#     id = c(seq(1, length=5), NA)
-#   ) |>
-#     transpose()
-#   chrom_b = list(
-#     loc = c(0, 10, 30, 50, 70, 90, 130),
-#     id = c(seq(6, length=6), NA)
-#   ) |>
-#     transpose()
-#   chrom_c <- list(
-#     loc = 0.0,
-#     id = NA
-#   ) |>
-#     transpose()
-#   ch <- list(a=chrom_a, b=chrom_b, c=chrom_c)
-# })
 test_that("Make recombination for given rate", {
   ch_length <- 130
   n <- 100
@@ -90,7 +44,7 @@ test_that("Make recombination for given rate", {
     ch_n = 1
   )
   recombined <- map(  1:n, \(i) recombine(ch_pair, cx_rate = cx_rate ))
-  cx_count <- map_int(recombined, \(r) nrow(r)) |>
+  cx_count <- map_int(recombined, ~ length(.$loc)) |>
     map_int( \(p) p-2)
   
   mean_cx_count <- mean(cx_count)
@@ -155,7 +109,7 @@ test_that("make population of generation 0 individuals", {
 })
 
 test_that("Produce child", {
-  n_child <- 3
+  n_child <- 6
   child <- map(1, make_child(mothers[[1]], fathers[[1]]))
   
   children2 <- make_children(mothers[[1]], fathers[[1]], child_n = 3)
@@ -179,26 +133,48 @@ test_that("Produce child", {
         reduce( ~ c(.x, .y))
   
   expect_equal(length(generation_2), 10)
-  gen_2 <- as_tibble(transpose(generation_2))
+  
+  expect_equal(length(generation_1[[3]]$lineage), 2)
+  expect_equal(length(generation_2[[3]]$lineage), 3)
 })
 
 test_that("Run generations",{
-  pop_n <- 500
-  gen_count <- 7
+  pop_n <- 50000
+  gen_count <- 3
   growth_rate <- 1.1
   
-  females <- map(seq(1, length=pop_n/2),
+  # females <- map(seq(1, length=pop_n/2),
+  #                \(id) create_gen0_individual(id, gender = "f")
+  # )
+  # males <- map(seq(1001, length=pop_n/2),
+  #                \(id) create_gen0_individual(id, gender = "m")
+  # )
+  #create males and females in one step to limit object size in environment for 
+  # furrr
+  gen_0 <- c(
+        map(seq(1, length=pop_n/2),
                  \(id) create_gen0_individual(id, gender = "f")
-  )
-  males <- map(seq(1001, length=pop_n/2),
+        ),
+        map(seq(1001, length=pop_n/2),
                  \(id) create_gen0_individual(id, gender = "m")
+            )
   )
-  gen_0 <- c(females, males)
   gens <- accumulate(1:gen_count,
                      \(gen, i) make_generation(gen, growth=growth_rate),
                      .init=gen_0 )  
   
-  sample(gens[[3]], 1) # |> map(~ .$lineage) 
+  sample(last(gens), 10 )  |> 
+    map(~ .$lineage[[1]])  |>
+    map(~ unique(.)) |>
+    map_int(~ length(.))#|>
+    keep( ~ . != 2^gen_count) |>
+    length()
+  
+  sample(last(gens), 10 )  |> 
+    map(~ .$lineage[[1]])  |>
+      map_int(~ length(.))# |>
+      detect_index( ~ . != 1024) |>
+      length()
   
   gen_size <- gens |>
     map_int(~length(.x))
@@ -213,11 +189,6 @@ test_that("Run generations",{
   expect_true (
     every( abs( growth_rate_obs - growth_rate ), ~ . <0.05)
   )
- 
-  gen_3 <- gens[[3]]
-  gen_3_s <- sample (gens[[3]], 3)
-  gen_3_ch_s <- get_chroms(gen_3_s )
-  expect_equal(length(gen_3_ch_s), 6)
   
   # get list of all chromosomes in list of individuals
   get_chroms  <- function (gen) {
@@ -225,6 +196,11 @@ test_that("Run generations",{
       map( ~ .x$ch_set[[1]]$chs ) |>
       reduce( ~ c(.x, .y) )# |> 
   }
+ 
+  gen_3 <- gens[[3]]
+  gen_3_s <- sample (gens[[3]], 3)
+  gen_3_ch_s <- get_chroms(gen_3_s )
+  expect_equal(length(gen_3_ch_s), 6)
   
   # get all ids in all chromosom in list of chromosomes
   get_chroms_all_ids <- function (chroms) {

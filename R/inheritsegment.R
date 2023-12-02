@@ -1,5 +1,6 @@
-library(usethis)
+library(furrr)
 library(tidyverse)
+library(usethis)
 library(uuid)
 
 # Data structure =====
@@ -259,6 +260,16 @@ make_children <- function(mother, father, child_n = NA, child_mean=2) {
     ~ make_child(mother, father)
   )               
 }
+furrr_generated <- function(mothers, fathers, child_m) {
+  # Split generation for furrr
+  future::plan(multisession, workers=6)
+  generated_a <- future_map2(mothers, fathers, 
+                      \(m,f) make_children(m, f, child_n = child_m),
+                      .options = furrr_options(seed=TRUE)
+                      )
+  generated <- generated_a |>
+    reduce( ~ c(.x, .y))
+}
 
 make_generation <- function (parent_gen, growth=1.1, limit_m=NA) {
   child_m <- 6  #mean number of children in family
@@ -282,12 +293,17 @@ make_generation <- function (parent_gen, growth=1.1, limit_m=NA) {
   sample_n_available <- min(length(females), length(males))
   sample_n <- min(sample_n_available, sample_n_target)
   
-  mothers <- sample(females, sample_n )    
-  fathers <- sample(males, sample_n)    
+  mothers <- sample(females, sample_n , replace = TRUE )
+  fathers <- sample(males, sample_n , replace = TRUE )   
+  
+  furrr <- T
+  if (furrr) {
+    generated <- furrr_generated(mothers, fathers, child_m)
+  } else {
   generated <- map2(mothers, fathers,
                       \(m,f) make_children(m, f, child_n = child_m)) |>
-        reduce( ~ c(.x, .y))
-  
+    reduce( ~ c(.x, .y))
+  }
   if (is.na(limit_m)) {
     limit <- length(parent_gen) * growth 
   }
