@@ -7,11 +7,11 @@ library(uuid)
 #, Data structures
 #' in ABNF format
 #' 
-#'  generation = 1*individual
+#'  generation = 1*individual ; same as a population
 #'  individual = iid gender pop-id ch-set
 #'  iid = INT | UUID ; individual identifier
 #'  gender = "f" | "m"
-#'  pop-id = INT  ; population id
+#'  pop-id = INT  ; (sub-)population id
 #'  ch-set= 1*ch_pair ; chromosome set of the individual
 #'  ch-pair = chs ch_n
 #'  ch-n = INT   ; chromosome number
@@ -24,37 +24,36 @@ library(uuid)
 #'  loc = 0 1*REAL ; location on the chromosome of start of segment in Mbp
 #'  
 #'  
-#'  lineage = 1*(iid-list)  ; first element is the first generation
-#'  id-list = 1*(INT | UUID)  
+#'  lineage = 1*(iid-list)  ; list for each generation, starting with oldest
+#'  iid-list = 1*(INT | UUID)   ; is of individual id from that generation
+
 #'  
 #' Make one crossover between chromesome a and b at location lock. Dataframe ver
 #'
 #' Chromosome triplet
+#' @param cht chromome triplet 
 #'    cht$a is the chromsome being crossed into
 #'    cht$b is the other chromosome, which is moved to position a before return
 #'    cht$c is the new chromosome being built up
-#' @param cht chromome triplet (a=parent 1, b=parent 1, c=child)
-#'  @param location to crossover) 
+#'  @param xloc location to crossover at) 
 
 #'
-#' @return same strucure as param, with chrom 3 extended and chrom 1 and 2 
-#' swapped 
+#' @return same cht strucure as param, with chrom 3 extended and chrom a and b
+#' swapped
 #'
 #' @examples
 crossover <- function (cht, xloc) {
-  # Logic of code
-  #  loc
+  # Logic of code to build up chromosome c
+  #  loc:
   #   all of c
   #   any of a > last of c && < xloc
   #   xloc
   #  
-  #  id
+  #  id:
   #   all of c less last c , which is NA
-  #   a from last before c-last 
-  #   to last. loc before xloc
+  #   a from last before c-last to last loc before xloc
   #   NA 
   
-  # index of last location in $c
   i_c1 <- length(cht$c)    
   # index of last location in $a before end of $c
   i_a1 <- detect_index(cht$a$loc, ~ . > last(cht$c$loc))
@@ -99,9 +98,10 @@ crossover <- function (cht, xloc) {
 #' @examples
 recombine <- function (ch_pair, cx_rate = 0.01){  
   chrom_length <- last(ch_pair$chs[[1]]$loc)
-  generate_count <- 50
+  generate_count <- 5000 * cx_rate
   
   
+  # generate random locations for crossover
   locs_1 <- rexp(generate_count, cx_rate) |>
     accumulate( \(len, loc) len + loc ) 
   
@@ -144,7 +144,7 @@ recombine <- function (ch_pair, cx_rate = 0.01){
 #' @param locs List of segment end positions, including end of chromosome
 #' @param start_id Start number for the segment ids
 #'
-#' @return Tibble specifying the segments
+#' @return list specifying the segments
 #'
 #' @examples
 make_ch <- function (locs, start_id) {
@@ -164,16 +164,16 @@ make_ch <- function (locs, start_id) {
 #'
 #' @param mat_ch maternal chromosome pair
 #' @param pat_ch paternal chromosome pair
-#' @param mat_xr maternal crossover rate
-#' @param pat_xr paternal crossover rate
+#' @param xr crossover rates vector of maternal and paternal rates, default 0.01
 #'
-#' @returno 
-#' @export zygote chromosome pair
+#' @return zygote chromosome pair
 #'
 #' @examples
-generate_zygote_chp <- function (mat_chp, pat_chp, mat_xr=0.01, pat_xr=0.01 ){
-  mat_gamete_ch <- recombine(mat_chp, mat_xr)
-  pat_gamete_ch<- recombine(pat_chp, pat_xr)
+#' 
+
+generate_zygote_chp <- function (mat_chp, pat_chp, xr=c(0.01,0.01)){
+  mat_gamete_ch <- recombine(mat_chp, xr[1])
+  pat_gamete_ch <- recombine(pat_chp, xr[2])
   
   zygote_chp <- list(
     chs = list(
@@ -184,13 +184,6 @@ generate_zygote_chp <- function (mat_chp, pat_chp, mat_xr=0.01, pat_xr=0.01 ){
   )
 }   
 
-#   make_chrome <- function (type) {
-#   chrom_a |>
-#     head_while(\(p) p$loc <= c_loc)
-#   # chromosome is made up of segments from ancestors
-#   # has fixed length
-#   # segment has start and end location, and id of root ancestor
-#   
 #   
 #   # crossover rate
 #   # female genome is 4460 cM, and male is 2590 cm (wikipedia)
@@ -205,7 +198,18 @@ generate_zygote_chp <- function (mat_chp, pat_chp, mat_xr=0.01, pat_xr=0.01 ){
 #   cross_rate_a <- 2 * genome_mbp / (genome_cm_female + genome_cm_male) /100
 #   }
 
-create_gen0_individual <- function (id, gender, ch_count=1, population_id=1) {
+#' Create zeroth generation individual, ancestors to following generations
+#'
+#' @param id 
+#' @param gender 
+#' @param ch_count 
+#' @param population_id 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+create_gen1_individual <- function (id, gender, ch_count=2, subpop_id=1) {
    
   make_starting_ch_pair <- function(ch_num, id, ch_length = 130) {
     list(
@@ -221,13 +225,25 @@ create_gen0_individual <- function (id, gender, ch_count=1, population_id=1) {
   individual <- list(
     iid = id,
     gender = gender,
-    pop_id = population_id,
+    suppop_id = subpop_id,
     lineage = list(id),
     ch_set = ch_set
 
   )
 }
 
+#' Generate hild from two parents
+#'
+#' Create new individual with chromosome set derived from mother and father
+#' meiosis, chromosome selection to hapliod, and fusion to diploid. Randomise
+#' gender and assign new UUID.
+#'
+#' @param mother individual which is the mother 
+#' @param father individual which is the father 
+#'
+#' @return new individual with set of chromosomes derived from parents
+#'
+#' @examples
 make_child <- function (mother, father) {
   
     make_child_ch_set <- function(mother, father) {
@@ -249,6 +265,17 @@ make_child <- function (mother, father) {
     )
 }
 
+#' Generate a number of children from pair of parents
+#'
+#' @param mother individual which is the mother 
+#' @param father individual which is the father 
+#' @param child_n (optional) number of children for the couple
+#' @param child_mean mean number of children for the couple, used to randomised
+#' the number of children. 
+#'
+#' @return list of new individuals with set of chromosomes derived from parents
+#'
+#' @examples
 make_children <- function(mother, father, child_n = NA, child_mean=2) {
   # Randomise the number of children, if not specified.
   if (is.na(child_n)){
@@ -260,6 +287,8 @@ make_children <- function(mother, father, child_n = NA, child_mean=2) {
     ~ make_child(mother, father)
   )               
 }
+
+# furrr code isolated in its own function to minimise objects in environment 
 furrr_generated <- function(mothers, fathers, child_m) {
   # Split generation for furrr
   future::plan(multisession, workers=6)
@@ -271,7 +300,19 @@ furrr_generated <- function(mothers, fathers, child_m) {
     reduce( ~ c(.x, .y))
 }
 
-make_generation <- function (parent_gen, growth=1.1, limit_m=NA) {
+#' Create a new generation of individuals from a given generation.
+#'
+#' @param parent_gen parent generation
+#' @param growth factor by which population size will increase each generation
+#' @param limit_m limit of size of generation (not implemented) 
+#' @param parallel set TRUE to run in parallel (for large populations), default
+#' is FALSE (faster for small tests)
+#'
+#' @return new generation
+#'
+#' @examples
+make_generation <- function (parent_gen, growth=1.1, limit_m=NA,
+                             parallel=FALSE) {
   child_m <- 6  #mean number of children in family
   
   # estimate quantity breeding pairs needed based on target growth, with margin
@@ -296,8 +337,7 @@ make_generation <- function (parent_gen, growth=1.1, limit_m=NA) {
   mothers <- sample(females, sample_n , replace = TRUE )
   fathers <- sample(males, sample_n , replace = TRUE )   
   
-  furrr <- T
-  if (furrr) {
+  if (parallel) {
     generated <- furrr_generated(mothers, fathers, child_m)
   } else {
   generated <- map2(mothers, fathers,
@@ -311,4 +351,22 @@ make_generation <- function (parent_gen, growth=1.1, limit_m=NA) {
   gen_next <- sample(generated, limit) 
   # use this to randomise generation size
   # gen_next <- sample(generated, rpois(1, limit)) 
+}
+  # get list of ids each individual has in all their chromosomes 
+
+#' 
+#' @param gen generation, or a list of individuals 
+#' 
+#' @return list of chromosomes in format of ch
+#'
+#' @examples
+get_gen_ids  <- function (pop) {
+  
+  temp <- pop[[4]]$ch_set |> map(~.$chs) |> map(~.$ch)
+  pop[[4]]
+  pop[[4]]$ch_set
+  pop[[4]]$ch_set$ch_pair
+  
+  kjkkkchroms <- gen |> map( ~ .x$ch_set[[ch_n]]$chs ) |>
+    reduce( ~ c(.x, .y) )# |> 
 }

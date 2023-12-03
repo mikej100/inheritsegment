@@ -2,14 +2,9 @@ library(testthat)
 library(dplyr)
 library(purrr)
 
-test_that("multiplication works", {
-  expect_equal(2 * 2, 4)
-})
-
 test_that("Make crossovers for given set of locations", {
-
  
-  make_cht_0 <- function() {
+  make_cht_1 <- function() {
     chrom_a <- make_ch( c(20, 40, 60, 80,100, 120, 130), 1)
     chrom_b <- make_ch( c(10, 30, 50, 70, 90, 110, 130), 1001)
     chrom_c <- make_ch( 0, 1)
@@ -22,13 +17,12 @@ test_that("Make crossovers for given set of locations", {
     id =  c(1,  2,  3,  4, 1004, 1005, 1006,   6,   7, NA)
   )
   
-  cht_0 <- make_cht_0()
+  cht_1 <- make_cht_1()
   recombined <- reduce( c(65, 105, 130), 
                         \(cht, xl) crossover (cht, xl),
-                        .init=cht_0
+                        .init=cht_1
                         )$c
   expect_equal(recombined, expected_1)
-  # res <- accumulate(c(65, 95, 130), \(ch, xl) crossover(ch, xl), .init=ch)
 })
 
 test_that("Make recombination for given rate", {
@@ -51,44 +45,52 @@ test_that("Make recombination for given rate", {
   poiss_exp <- cx_rate * ch_length
   sem <-  poiss_exp / n^0.5
   # Expect mean to be within four sigmas
-  expect_equal(mean(cx_count), poiss_exp, tolerance = 4 * sem  )
+  expect_true( abs(mean(cx_count) - poiss_exp) < 4 * sem  )
   
 })
 
+test_that("Produce zygote chromosome pairs", {
+  mother <- map(1:2, ~ create_gen1_individual(.x, "f") )
+  father<- map(1:2, ~ create_gen1_individual(1000 * .x + 1 , "m") )
+  
+  # create first generation
+  m1_chp <- mother[[1]]$ch_set[[1]]
+  p1_chp <- father[[1]]$ch_set[[1]]
+  xr <- c(0.1, 0.05)
+  zygote1_chp <-  generate_zygote_chp(m1_chp, p1_chp, xr)
+  
+  # check first generation 
+  pat1_id <- zygote1_chp$chs[[2]]$id |> head(-1)
+  expect_true( every(pat1_id, ~ .x == 1001))
+  
+  mat1_id <- zygote1_chp$chs[[1]]$id |> head(-1)
+  expect_gte (length(mat1_id), length(pat1_id) )
+  
+  # create second generation
+  m2_chp <- mother[[2]]$ch_set[[1]]
+  p2_chp <- father[[2]]$ch_set[[1]]
+  zygote2_chp <-  generate_zygote_chp(m2_chp, p2_chp, xr)
+  zygote3_chp <-  generate_zygote_chp(zygote1_chp, zygote2_chp, xr)
+  
+  # check second generation
+  pat3_id <- zygote3_chp$chs[[2]]$id |> head(-1)
+  expect_true( every(pat3_id, ~ .x %in% c(2, 2001)))
+}) 
 
-test_that("Produces zygote chromosomes", {
-  ch_length = 130
-  m_chp <- list(
-    chs = map(11:12, \(id) make_ch( ch_length, id )),
-    ch_n = 1
-  )
-  p_chp <- list(
-    chs = map(1:2, \(id) make_ch( ch_length, id )),
-    ch_n = 1
-  )
-  xr_mat <- 0.08
-  xr_pat <- 0.05
+test_that("create individual of generation 1",{
+  ind1 <- create_gen1_individual(2, gender = "f")
+  expect_equal( length(ind1$ch_set), 2)
   
-  n=3
-  zygote_set <- map (1:n,
-    \(i) generate_zygote_chp(m_chp, p_chp, xr_mat, xr_pat)
-  )
-  pat_ids <-zygote_set |> 
-    map(\(z) z$chs[[2]]$id) |>
-    reduce( \(cum, id) append(cum, id)) |>
-    keep( \(id) !is.na(id))
-  
-  expect_equal(mean(pat_ids), 1.5, tolerance = 0.1 )  
-  expect_equal(length(pat_ids), 130 * xr_pat * n, tolerance = 0.5)
+  ind2 <- create_gen1_individual(2, gender = "m", ch_count = 5)
+  expect_equal( length(ind2$ch_set), 5)
 })
 
-zygote_set[[2]]$chs[[1]]$id
-test_that("make population of generation 0 individuals", {
+test_that("make population of generation 1 individuals", {
   females <- map(seq(1, length=12),
-                 \(id) create_gen0_individual(id, gender = "f")
+                 \(id) create_gen1_individual(id, gender = "f")
   )
   males <- map(seq(1001, length=10),
-                 \(id) create_gen0_individual(id, gender = "m")
+                 \(id) create_gen1_individual(id, gender = "m")
   )
   population <- c(females, males)
   
@@ -104,13 +106,26 @@ test_that("make population of generation 0 individuals", {
       mean(),
     1005.5
   )
-  mothers <<- sample(females, 5, replace=FALSE)
-  fathers <<- sample(males, 5, replace=FALSE)
 })
 
-test_that("Produce child", {
-  n_child <- 6
-  child <- map(1, make_child(mothers[[1]], fathers[[1]]))
+test_that("Produce children and generations", {
+  mothers <- map(seq(1, length=5),
+                 \(id) create_gen1_individual(id, gender = "f")
+  )
+  fathers <- map(seq(1001, length=5),
+                 \(id) create_gen1_individual(id, gender = "m")
+  )
+  
+  # check child has expected ids
+  child <- make_child(mothers[[2]], fathers[[3]])
+  child_pat_id <- child$ch_set[[2]]$chs[[2]]$id |> head(-1)
+  child_mat_id <- child$ch_set[[2]]$chs[[1]]$id |> head(-1)
+  expect_true( every(child_pat_id, ~ . == 1003))
+  expect_true( every(child_mat_id, ~ . == 2))
+  
+  expect_equal(child$lineage[[1]], c(2,1003))
+  # expect uuid
+  expect_equal(str_length(child$lineage[[2]]) , 36 )
   
   children2 <- make_children(mothers[[1]], fathers[[1]], child_n = 3)
   children3 <- make_children(mothers[[1]], fathers[[1]])
@@ -139,7 +154,9 @@ test_that("Produce child", {
 })
 
 test_that("Run generations",{
-  pop_n <- 50000
+  # set to 100 for these tests
+  pop_n <- 100
+  # set gen_count to at least 3 for the tests
   gen_count <- 3
   growth_rate <- 1.1
   
@@ -149,38 +166,29 @@ test_that("Run generations",{
   # males <- map(seq(1001, length=pop_n/2),
   #                \(id) create_gen0_individual(id, gender = "m")
   # )
+  
   #create males and females in one step to limit object size in environment for 
   # furrr
-  gen_0 <- c(
+  gen_1 <- c(
         map(seq(1, length=pop_n/2),
-                 \(id) create_gen0_individual(id, gender = "f")
+                 \(id) create_gen1_individual(id, gender = "f")
         ),
         map(seq(1001, length=pop_n/2),
-                 \(id) create_gen0_individual(id, gender = "m")
+                 \(id) create_gen1_individual(id, gender = "m")
             )
   )
+  
+  # Generate multiple generations ====================
   gens <- accumulate(1:gen_count,
                      \(gen, i) make_generation(gen, growth=growth_rate),
-                     .init=gen_0 )  
+                     .init=gen_1 )  
   
-  sample(last(gens), 10 )  |> 
-    map(~ .$lineage[[1]])  |>
-    map(~ unique(.)) |>
-    map_int(~ length(.))#|>
-    keep( ~ . != 2^gen_count) |>
-    length()
-  
-  sample(last(gens), 10 )  |> 
-    map(~ .$lineage[[1]])  |>
-      map_int(~ length(.))# |>
-      detect_index( ~ . != 1024) |>
-      length()
-  
-  gen_size <- gens |>
-    map_int(~length(.x))
   # Expect observed growth rate of about to match growth_rate parameter
   # Requires the generation size not to be randomised
-  expect_equal(gen_size[3], 605)
+  gen_size <- gens |>
+    map_int(~length(.x))
+  
+  expect_equal(gen_size[3], 121)
   
   growth_rate_obs <-
     map2(gen_size, lag(gen_size),  ~ .x/.y ) |>
@@ -190,14 +198,25 @@ test_that("Run generations",{
     every( abs( growth_rate_obs - growth_rate ), ~ . <0.05)
   )
   
-  # get list of all chromosomes in list of individuals
+  # Look at non-unique iids in lineage, result of related ancestry)
+  sample_n <- 50
+  non_unique_ancestor_rate <- sample(last(gens), sample_n )  |> 
+    map(~ .$lineage[[1]])  |>
+    map(~ unique(.)) |>
+    map_int(~ length(.))|>
+    keep( ~ . != 2^gen_count) |>
+    length()/sample_n
+  expect_lt( abs(non_unique_ancestor_rate - 0.28), .3) 
+  
+  
+  # get list of all chromosomes 1 in list of individuals
   get_chroms  <- function (gen) {
       chroms <- gen |>
       map( ~ .x$ch_set[[1]]$chs ) |>
       reduce( ~ c(.x, .y) )# |> 
   }
  
-  gen_3 <- gens[[3]]
+  # test can extract expected number of chromosomes 
   gen_3_s <- sample (gens[[3]], 3)
   gen_3_ch_s <- get_chroms(gen_3_s )
   expect_equal(length(gen_3_ch_s), 6)
@@ -208,13 +227,13 @@ test_that("Run generations",{
     map(~ .x$id) |>
     reduce(~ c(.x, .y)) |>
     keep ( ~ !is.na(.x))
-  }
+    }
   
   # get all chromosomes into one list, by generation
   gen_chroms <- gens |>
     map(~ get_chroms(.x))
   
-  # get mean number of segments in a chromosome for each generation
+    # get mean number of segments in a chromosome for each generation
   gens_id_n_mean <-  gen_chroms |>
     map_dbl( ~ .x|>
       map(~ .x$id) |>
@@ -227,20 +246,60 @@ test_that("Run generations",{
       map_int( ~ length(.x) -1) |>
       sd()
     )
-  gens_id_n_growth   <-
-      map2_dbl(gens_id_n_mean, lag(gens_id_n_mean), ~ .x/.y) 
+  # expect mean number of chromosome segments to grow continuously through gens
+  # list of increments in ids
+  id_inc   <-
+      map2_dbl(gens_id_n_mean, lag(gens_id_n_mean), ~ .x-.y) |>
+    tail( -1)
   
-  # get number of unique ids
-  gens_unique_id_n <-  gen_chroms |>
+  id_inc_expected <- 1.2
+  id_inc_deviation <- map_dbl(id_inc, ~ abs(.x - id_inc_expected))
+  expect_true( every(id_inc_deviation, ~ .<.3))
+  
+  
+  sample(gens[[7]],1) |> map(~ .$lineage) 
+  })
+test_that("Model the chances of sharing any DNA with someone n-generations back", {
+  pop_n <- 1e2
+  gen_count <- 4
+  growth_rate <- 1.
+  
+  gen_1 <- c(
+        map(seq(1, length=pop_n/2),
+                 \(id) create_gen0_individual(id, gender = "f")
+        ),
+        map(seq(2001, length=pop_n/2),
+                 \(id) create_gen0_individual(id, gender = "m")
+            )
+  )
+  # Generate multiple generations ====================
+  parallel_switch <- pop_n >= 1000
+  gens <- accumulate(1:gen_count, .init=gen_1, 
+                     \(gen, i) make_generation(
+                                    gen,
+                                    growth=growth_rate,
+                                    parallel = parallel_switch
+                                    )
+                     )
+  # get all chromosomes into one list, by generation
+  gen_chroms <- gens |>
+    map(~ get_chroms(.x))
+  
+  
+  
+  # get number of unique ids per chromosome set for each individual, by generation
+  gen_unique_id_n <-  gen_chroms |>
     map( ~ .x|>
-      map(~ .x$id)|>
+      map(~ head(.x$id, -1)) |>
       map( ~ unique(.x)) |>
-      map_int( ~ length(.x) - 1 )
-    )
+      map_int( ~ length(.x)  )
+      )
+  gen_chroms[[2]] |> map(~ head(.x$id, -1)) |> sample(10) 
+  sample(gen_unique_id_n[[3]],20)
   gens_unique_id_n_m <- map_dbl(gens_unique_id_n, ~ mean(.x)) 
   
   gens_unique_id_n_growth <-
     map2_dbl( gens_unique_id_n_m, lag(gens_unique_id_n_m), ~ .x/.y )
+  ge 
   
-  sample(gens[[7]],1) |> map(~ .$lineage) 
-  })
+})
