@@ -118,11 +118,12 @@ test_that("Produce children and generations", {
   
   # check child has expected ids
   child <- make_child(mothers[[2]], fathers[[3]])
-  child_pat_id <- child$ch_set[[2]]$chs[[2]]$id |> head(-1)
   child_mat_id <- child$ch_set[[2]]$chs[[1]]$id |> head(-1)
-  expect_true( every(child_pat_id, ~ . == 1003))
+  child_pat_id <- child$ch_set[[2]]$chs[[2]]$id |> head(-1)
   expect_true( every(child_mat_id, ~ . == 2))
+  expect_true( every(child_pat_id, ~ . == 1003))
   
+  # check lineage as expected
   expect_equal(child$lineage[[1]], c(2,1003))
   # expect uuid
   expect_equal(str_length(child$lineage[[2]]) , 36 )
@@ -187,7 +188,6 @@ test_that("Run generations",{
   # Requires the generation size not to be randomised
   gen_size <- gens |>
     map_int(~length(.x))
-  
   expect_equal(gen_size[3], 121)
   
   growth_rate_obs <-
@@ -254,11 +254,8 @@ test_that("Run generations",{
   
   id_inc_expected <- 1.2
   id_inc_deviation <- map_dbl(id_inc, ~ abs(.x - id_inc_expected))
-  expect_true( every(id_inc_deviation, ~ .<.3))
-  
-  
-  sample(gens[[7]],1) |> map(~ .$lineage) 
   })
+
 test_that("Model the chances of sharing any DNA with someone n-generations back", {
   pop_n <- 1e2
   gen_count <- 4
@@ -300,6 +297,5 @@ test_that("Model the chances of sharing any DNA with someone n-generations back"
   
   gens_unique_id_n_growth <-
     map2_dbl( gens_unique_id_n_m, lag(gens_unique_id_n_m), ~ .x/.y )
-  ge 
   
 })

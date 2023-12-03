@@ -11,7 +11,7 @@ library(uuid)
 #'  individual = iid gender pop-id ch-set
 #'  iid = INT | UUID ; individual identifier
 #'  gender = "f" | "m"
-#'  pop-id = INT  ; (sub-)population id
+#'  subpop-id = INT  ; sub-population id
 #'  ch-set= 1*ch_pair ; chromosome set of the individual
 #'  ch-pair = chs ch_n
 #'  ch-n = INT   ; chromosome number
@@ -28,31 +28,30 @@ library(uuid)
 #'  iid-list = 1*(INT | UUID)   ; is of individual id from that generation
 
 #'  
-#' Make one crossover between chromesome a and b at location lock. Dataframe ver
+#' Make one crossover between chromesome a and b at location loc
 #'
-#' Chromosome triplet
-#' @param cht chromome triplet 
+#' @param cht chromosome triplet 
 #'    cht$a is the chromsome being crossed into
 #'    cht$b is the other chromosome, which is moved to position a before return
 #'    cht$c is the new chromosome being built up
-#'  @param xloc location to crossover at) 
-
+#'  @param xloc location to crossover at
+#'  
+#' Logic of code to build up chromosome c
+#'  loc:
+#'   all of c
+#'   any of a > last-of-c && < xloc
+#'   xloc
+#'  
+#'  id:
+#'   all of c less last c , which is NA
+#'   a from last before last-of-c to last loc before xloc
+#'   NA 
 #'
-#' @return same cht strucure as param, with chrom 3 extended and chrom a and b
+#' @return same cht structure as param, with chrom c extended and chrom a and b
 #' swapped
 #'
 #' @examples
 crossover <- function (cht, xloc) {
-  # Logic of code to build up chromosome c
-  #  loc:
-  #   all of c
-  #   any of a > last of c && < xloc
-  #   xloc
-  #  
-  #  id:
-  #   all of c less last c , which is NA
-  #   a from last before c-last to last loc before xloc
-  #   NA 
   
   i_c1 <- length(cht$c)    
   # index of last location in $a before end of $c
@@ -100,20 +99,23 @@ recombine <- function (ch_pair, cx_rate = 0.01){
   chrom_length <- last(ch_pair$chs[[1]]$loc)
   generate_count <- 5000 * cx_rate
   
-  
   # generate random locations for crossover
   locs_1 <- rexp(generate_count, cx_rate) |>
     accumulate( \(len, loc) len + loc ) 
   
   # Will the generated locations be long enough?
+  # TODO replace all this checking with a loop to generate more if needed.
   # If this stop is thrown, then increase the generate_count.
+  # Use gamma function to assess whether probability of failure is very low
   # map_dbl( c(0.5, 0.1, .1e-3, 1e-12, 1e-15),\(p) stats::qgamma( p, shape = 150, rate = .01 ))
   min_length <- stats::qgamma( 1e-15, shape = generate_count, rate = cx_rate)
   if (min_length < chrom_length) {
+    # warn if there is perceptible probability of failure
     stop("Warning: generating crossover location list may not be long enough")
   }
   if (last(locs_1) <= chrom_length)  {
-    stop("Error generating crossover location list, too short")
+    # It happened, not enough locs, need to increase
+    stop("Error generating crossover location list, generate_count too small")
   }
   
   locs <- head_while(locs_1, \(len) len <= chrom_length) |>
@@ -129,13 +131,11 @@ recombine <- function (ch_pair, cx_rate = 0.01){
                   b = ch_pair$chs[[1]],
                   c = make_ch( c(0), 1) ) 
   }
-   
   reduce( locs, 
                         \(ch, xl) crossover (ch, xl),
                         .init=ch_0
                         )$c
 }
-    
 
 #' Set up a chromosome with given set of segments with sequential ids
 #' 
@@ -170,8 +170,7 @@ make_ch <- function (locs, start_id) {
 #'
 #' @examples
 #' 
-
-generate_zygote_chp <- function (mat_chp, pat_chp, xr=c(0.01,0.01)){
+generate_zygote_chp <- function (mat_chp, pat_chp, xr=c(0.01, 0.01)){
   mat_gamete_ch <- recombine(mat_chp, xr[1])
   pat_gamete_ch <- recombine(pat_chp, xr[2])
   
@@ -198,15 +197,16 @@ generate_zygote_chp <- function (mat_chp, pat_chp, xr=c(0.01,0.01)){
 #   cross_rate_a <- 2 * genome_mbp / (genome_cm_female + genome_cm_male) /100
 #   }
 
-#' Create zeroth generation individual, ancestors to following generations
+#' Create first generation individual, ancestors of following generations
 #'
-#' @param id 
-#' @param gender 
-#' @param ch_count 
-#' @param population_id 
+#' @param id integer, id for segments of all chromosomes, also is individual id
+#' @param gender "f" or "m" 
+#' @param ch_count integer, haploid count of chromosomes individual to have. 
+#' default=2 
+#' @param subpop_id integer, id to specify a sub-population in the generation. 
+#' default=1k
 #'
-#' @return
-#' @export
+#' @return list with structure of an individual
 #'
 #' @examples
 create_gen1_individual <- function (id, gender, ch_count=2, subpop_id=1) {
@@ -225,18 +225,18 @@ create_gen1_individual <- function (id, gender, ch_count=2, subpop_id=1) {
   individual <- list(
     iid = id,
     gender = gender,
-    suppop_id = subpop_id,
+    subpop_id = subpop_id,
     lineage = list(id),
     ch_set = ch_set
 
   )
 }
 
-#' Generate hild from two parents
+#' Generate child from two parents
 #'
 #' Create new individual with chromosome set derived from mother and father
-#' meiosis, chromosome selection to hapliod, and fusion to diploid. Randomise
-#' gender and assign new UUID.
+#' meiosis, chromosome selection to haploid, and fusion to diploid. Randomise
+#' gender and assign UUID to individual id.
 #'
 #' @param mother individual which is the mother 
 #' @param father individual which is the father 
@@ -259,7 +259,7 @@ make_child <- function (mother, father) {
     child <- list (
       gender = sample(c("f", "m"), 1),
       iid = iid,
-      pop_id = mother$pop_id,
+      pop_id = mother$subpop_id,     # Simply assign mother's subpopulation id
       lineage = lineage,
       ch_set = make_child_ch_set(mother, father)
     )
@@ -313,7 +313,7 @@ furrr_generated <- function(mothers, fathers, child_m) {
 #' @examples
 make_generation <- function (parent_gen, growth=1.1, limit_m=NA,
                              parallel=FALSE) {
-  child_m <- 6  #mean number of children in family
+  child_m <- 3  #mean number of children in family
   
   # estimate quantity breeding pairs needed based on target growth, with margin
   par_n <- length(parent_gen)
@@ -348,25 +348,9 @@ make_generation <- function (parent_gen, growth=1.1, limit_m=NA,
     limit <- length(parent_gen) * growth 
   }
   
+  # randomise order and selection for next generation
   gen_next <- sample(generated, limit) 
   # use this to randomise generation size
   # gen_next <- sample(generated, rpois(1, limit)) 
 }
-  # get list of ids each individual has in all their chromosomes 
 
-#' 
-#' @param gen generation, or a list of individuals 
-#' 
-#' @return list of chromosomes in format of ch
-#'
-#' @examples
-get_gen_ids  <- function (pop) {
-  
-  temp <- pop[[4]]$ch_set |> map(~.$chs) |> map(~.$ch)
-  pop[[4]]
-  pop[[4]]$ch_set
-  pop[[4]]$ch_set$ch_pair
-  
-  kjkkkchroms <- gen |> map( ~ .x$ch_set[[ch_n]]$chs ) |>
-    reduce( ~ c(.x, .y) )# |> 
-}
