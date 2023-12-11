@@ -1,8 +1,12 @@
 library(furrr)
+library(logger)
+library(lubridate)
+library(tictoc)
 library(tidyverse)
 library(usethis)
 library(uuid)
 
+log_info("Logging inheritsegment")
 # Data structure =====
 #, Data structures
 #' in ABNF format
@@ -164,13 +168,14 @@ make_ch <- function (locs, start_id) {
 #'
 #' @param mat_ch maternal chromosome pair
 #' @param pat_ch paternal chromosome pair
-#' @param xr crossover rates vector of maternal and paternal rates, default 0.01
+#' @param xr crossover rates vector of maternal and paternal rates. Crossover 
+#' per Mbp default 0.0144 and 0.083 (human average)
 #'
 #' @return zygote chromosome pair
 #'
 #' @examples
 #' 
-generate_zygote_chp <- function (mat_chp, pat_chp, xr=c(0.01, 0.01)){
+generate_zygote_chp <- function (mat_chp, pat_chp, xr=c(0.0144, 0.0083)){
   mat_gamete_ch <- recombine(mat_chp, xr[1])
   pat_gamete_ch <- recombine(pat_chp, xr[2])
   
@@ -186,15 +191,18 @@ generate_zygote_chp <- function (mat_chp, pat_chp, xr=c(0.01, 0.01)){
 #   
 #   # crossover rate
 #   # female genome is 4460 cM, and male is 2590 cm (wikipedia)
-#   # Take human genome 3.1 e9 long, in 24 chromosomes
+#   # Take human genome 3.1 e9 long, in 23 chromosomes
 #   genome_cm_female <- 4460
 #   genome_cm_male <- 2590
 #   genome_mbp <- 3.1e3
-#   chrom_count <- 24
-#   
-#   chrom_size <- genome_mbp / 24
+#   chrom_count <- 23
+#
+#      
+#   chrom_size <- genome_mbp / chrom_count = 135
+#   maternal and paternal crossover rate average 
+#   4460/3100 = 0.0144 paternal 2590/3100 = 0.00835
 #   # estimate average rate in Morgans (not cMorgans)
-#   cross_rate_a <- 2 * genome_mbp / (genome_cm_female + genome_cm_male) /100
+#   cross_rate_m <- genome_mbp / (genome_cm_female /100
 #   }
 
 #' Create first generation individual, ancestors of following generations
@@ -211,7 +219,7 @@ generate_zygote_chp <- function (mat_chp, pat_chp, xr=c(0.01, 0.01)){
 #' @examples
 create_gen1_individual <- function (id, gender, ch_count=2, subpop_id=1) {
    
-  make_starting_ch_pair <- function(ch_num, id, ch_length = 130) {
+  make_starting_ch_pair <- function(ch_num, id, ch_length = 135) {
     list(
       chs = list (
         make_ch(ch_length, id),
@@ -253,13 +261,15 @@ make_child <- function (mother, father) {
     }
     iid <- UUIDgenerate()
     
-    lineage <- map2( mother$lineage, father$lineage, ~  c(.x, .y) ) |>
-      c(iid)
+     
+    lineage <- c(mother$iid, father$iid)
+#    lineage <- map2( mother$lineage, father$lineage, ~  c(.x, .y) ) |>
+#      c(iid)
 
     child <- list (
       gender = sample(c("f", "m"), 1),
       iid = iid,
-      pop_id = mother$subpop_id,     # Simply assign mother's subpopulation id
+      subpop_id = mother$subpop_id,     # Simply assign mother's subpopulation id
       lineage = lineage,
       ch_set = make_child_ch_set(mother, father)
     )
@@ -291,7 +301,9 @@ make_children <- function(mother, father, child_n = NA, child_mean=2) {
 # furrr code isolated in its own function to minimise objects in environment 
 furrr_generated <- function(mothers, fathers, child_m) {
   # Split generation for furrr
-  future::plan(multisession, workers=6)
+  future_workers <- 6 
+  log_info("Parallel processing future_workers: {future_workers}")
+  future::plan(multisession, workers=future_workers)
   generated_a <- future_map2(mothers, fathers, 
                       \(m,f) make_children(m, f, child_n = child_m),
                       .options = furrr_options(seed=TRUE)
@@ -314,7 +326,7 @@ furrr_generated <- function(mothers, fathers, child_m) {
 make_generation <- function (parent_gen, growth=1.1, limit_m=NA,
                              parallel=FALSE) {
   child_m <- 3  #mean number of children in family
-  
+  log_info("Making generation") 
   # estimate quantity breeding pairs needed based on target growth, with margin
   par_n <- length(parent_gen)
   if (is.na(limit_m)) {
@@ -354,3 +366,59 @@ make_generation <- function (parent_gen, growth=1.1, limit_m=NA,
   # gen_next <- sample(generated, rpois(1, limit)) 
 }
 
+  generate <- function(  pop_n,  gen_count, ch_count = 23, growth_rate = 1.0) {
+ 
+  gen_1 <- c(
+        map(seq(1, length=pop_n/2),
+                 \(id) create_gen1_individual(
+                   id, gender = "f", ch_count = ch_count
+                 )
+        ),
+        map(seq(500001, length=pop_n/2),
+                 \(id) create_gen1_individual(
+                   id, gender = "m", ch_count = ch_count)
+            )
+  )
+  parallel_switch <- pop_n * ch_count >= 3000
+  tic()
+  log_info("Generation parameters: 
+            starting population: {pop_n}
+            generation count: {gen_count}
+            growth rate: {growth_rate}
+            chromsome count: {ch_count}
+            parallel switch: {parallel_switch}
+           " )
+  gens <- accumulate(1:gen_count, .init=gen_1, 
+                     \(gen, i) make_generation(
+                                    gen,
+                                    growth=growth_rate,
+                                    parallel = parallel_switch
+                                    )
+                     )
+  timer <- toc()
+  log_info("Generation timer: {timer$callback_msg}") 
+  
+  return(gens)
+  }
+  
+  write_data <- function(data, filename) {
+    full_filename <- str_c(filename,".RData")
+    filepath <- file.path("..","not_in_repo","data","generations",full_filename)
+    save(data, file=filepath)
+  }
+  load_data <- function(filename) {
+    full_filename <- str_c(filename,".RData")
+    filepath <- file.path("..","not_in_repo","data","generations",full_filename)
+    result <- load(filepath)
+    
+  }
+# Extract timing intervals from logfile  
+log_timing_analysis <- function(text){
+  
+  datetimes <- function (text) {
+    str_extract_all(text,"\\d{4}-\\d{2}-\\d{2}.{9}") |>
+      unlist()
+  }   
+  dt <- datetimes(text)
+}
+  

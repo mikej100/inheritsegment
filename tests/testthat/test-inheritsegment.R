@@ -1,6 +1,13 @@
+library(logger)
 library(testthat)
 library(dplyr)
 library(purrr)
+library(tictoc)
+
+
+log_appender(appender_file("./log/log.txt"), index = 2)
+log_info( "Logging to {getwd()}" )
+log_info("Logging started")
 
 test_that("Make crossovers for given set of locations", {
  
@@ -124,9 +131,9 @@ test_that("Produce children and generations", {
   expect_true( every(child_pat_id, ~ . == 1003))
   
   # check lineage as expected
-  expect_equal(child$lineage[[1]], c(2,1003))
+  # expect_equal(child$lineage[[1]], c(2,1003))
   # expect uuid
-  expect_equal(str_length(child$lineage[[2]]) , 36 )
+  #expect_equal(str_length(child$lineage[[2]]) , 36 )
   
   children2 <- make_children(mothers[[1]], fathers[[1]], child_n = 3)
   children3 <- make_children(mothers[[1]], fathers[[1]])
@@ -211,7 +218,7 @@ test_that("Run generations",{
   
   # get list of all chromosomes 1 in list of individuals
   get_chroms  <- function (gen) {
-      chroms <- gen |>
+      chroms <- gen |> map (seq_along(chs_s))
       map( ~ .x$ch_set[[1]]$chs ) |>
       reduce( ~ c(.x, .y) )# |> 
   }
@@ -257,45 +264,133 @@ test_that("Run generations",{
   })
 
 test_that("Model the chances of sharing any DNA with someone n-generations back", {
-  pop_n <- 1e2
-  gen_count <- 4
-  growth_rate <- 1.
+    pop_n <- 1e5
+    ch_count <- 23
+    gen_count <- 16
+    growth_rate <- 1.0
   
-  gen_1 <- c(
-        map(seq(1, length=pop_n/2),
-                 \(id) create_gen0_individual(id, gender = "f")
-        ),
-        map(seq(2001, length=pop_n/2),
-                 \(id) create_gen0_individual(id, gender = "m")
-            )
-  )
-  # Generate multiple generations ====================
-  parallel_switch <- pop_n >= 1000
-  gens <- accumulate(1:gen_count, .init=gen_1, 
-                     \(gen, i) make_generation(
-                                    gen,
-                                    growth=growth_rate,
-                                    parallel = parallel_switch
-                                    )
-                     )
-  # get all chromosomes into one list, by generation
-  gen_chroms <- gens |>
-    map(~ get_chroms(.x))
+  gens <- generate(pop_n = pop_n, gen_count = gen_count)
+  
+  write_data(gens, "gens_pe3_g16") 
+  
+  gens <- load_data("gens_pe2_g_20")
+  
+  inds <- sample(gens[[4]],2)
+  
+  ind <- ind[[1]]
+  
+  # Get chromosome pairs from an individual
+  get_chpairs_from_ind <-function(ind){
+    ind$ch_set |>
+      map(~ .) 
+  }
+  # get chromosom id vectors from a chromosome pair 
+  get_idvs_from_chpair <- function (ch_pair) {
+      map(ch_pair$chs, ~ .$id) |> 
+      map(~ head(.x, -1))
+  }
+  # Get count of unique ids from a structure with id vectors 
+  # Flattens the input to single vector
+  get_uniq_id_count_from_idv <- function(idv){
+    idv |>
+      unlist() |>
+      unique() |>
+      length()
+  }
+  
+  # Get chromosome id vectors for all the chromosome in an individual
+  #  Result is list of all id vectors for the individual
+  get_idvs_from_individual <- function(ind) {
+    ind |>
+    get_chpairs_from_ind()|>
+    map(~  get_idvs_from_chpair(.))|>
+    reduce(~ c(.x, .y))
+  } 
+  
+  # Count all unique ids for an individual
+  get_uniq_id_count_from_individual <- function(ind) {
+    ind |>
+    get_idvs_from_individual() |>
+      get_uniq_id_count_from_idv()
+  }
+  # get the mean number of unique ids per individual within a population 
+  # or generation
+  get_uniq_id_mean_from_population <- function (pop) {
+    pop |> 
+      map_int(~ get_uniq_id_count_from_individual(.x)) |>
+      mean()
+  }
   
   
+ # get_uniq_id_in_pop <- gens[[2]] |>
+    
+   sample(gens[[2]],1) 
+   
+   sample(gens[[2]],1) |>
+     map(~ get_idvs_from_individual(.))
   
-  # get number of unique ids per chromosome set for each individual, by generation
-  gen_unique_id_n <-  gen_chroms |>
-    map( ~ .x|>
-      map(~ head(.x$id, -1)) |>
-      map( ~ unique(.x)) |>
-      map_int( ~ length(.x)  )
-      )
-  gen_chroms[[2]] |> map(~ head(.x$id, -1)) |> sample(10) 
-  sample(gen_unique_id_n[[3]],20)
-  gens_unique_id_n_m <- map_dbl(gens_unique_id_n, ~ mean(.x)) 
+  # Analyse gens data ======
+  sample(gens[[4]],20) |> get_uniq_id_mean_from_population()
   
-  gens_unique_id_n_growth <-
-    map2_dbl( gens_unique_id_n_m, lag(gens_unique_id_n_m), ~ .x/.y )
   
-})
+ # uniq_id_progression <-
+  uniq_id_progression <- function (gens, sample_size=100){
+    gens |> map(~ sample(.x, sample_size)) |>
+      map_dbl(~ get_uniq_id_mean_from_population(.x))
+  }
+    
+# Probability of inheriting any segment of DNA from original ancestor
+# progression through generation
+uniq<- uniq_id_progression(gens)
+ancestor_count <- map_int(0:16, ~ 2^.x)
+p_inh_seg <- uniq/ancestor_count 
+plot(p_inh_seg)
+    
+# Look at the total pool of ids in the population, counting the number
+# of unique ids through the generations
+get_uniq_id_count_in_whole_pop_sampling <- function(pop, sample_size=N){   
+   sample(pop, sample_size) |>
+     map(~ get_idvs_from_individual(.)) |>
+     reduce (~ c(.x, .y)) |>
+      get_uniq_id_count_from_idv()
+}
+get_uniq_id_count_in_whole_pop <- function(pop, samples_size=NA){   
+   if (! samples_size == NA) {
+      pop <- sample(pop, sample_size)
+   }
+  
+   pop |>
+     map(~ get_idvs_from_individual(.)) |>
+     reduce (~ c(.x, .y)) |>
+      get_uniq_id_count_from_idv()
+}
+get_uniq_id_count_in_whole_pop(gens[[2]])
+
+pop_uniq_id_progression <- gens|>
+  map_int( ~ get_uniq_id_count_in_whole_pop(.x))
+
+pop_uniq_id_progression 
+
+
+
+
+
+  # Look at non-unique iids in lineage, result of related ancestry)
+pop_uniq_id_progression <- gens|>
+  map_int( ~ get_uniq_id_count_in_whole_pop(.x, length()))
+  # Look at non-unique iids in lineage, result of related ancestry)
+pop_uniq_id_progression
+
+
+
+
+  sample_n <- 50
+  ancestor_count <- sample(last(gens), sample_n )  |> 
+    map(~ .$lineage[[1]])  |>
+    map_int(~ length(.))
+  ancestor_unique_mean <- sample(last(gens), sample_n )  |> 
+    map(~ .$lineage[[1]])  |>
+    map(~ unique(.)) |>
+    map_int(~ length(.)) |>
+    mean()
+    
